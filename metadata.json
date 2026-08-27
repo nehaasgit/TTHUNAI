@@ -1,0 +1,6 @@
+{
+  "name": "ThunAI",
+  "description": "An AI-powered digital companion and resource center designed for interstate migrant workers in Tamil Nadu.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
