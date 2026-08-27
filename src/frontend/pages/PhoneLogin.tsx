@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { useApp } from '../contexts/AppContext.js';
-import { Smartphone, ShieldCheck, AlertCircle, RefreshCw, KeyRound } from 'lucide-react';
+import { Smartphone, ShieldCheck, AlertCircle, RefreshCw, KeyRound, RotateCcw } from 'lucide-react';
+import { isFirebaseConfigured } from '../utils/firebase.js';
 
 export default function PhoneLogin() {
   const { sendOtp, verifyOtp, t } = useApp();
@@ -14,13 +15,34 @@ export default function PhoneLogin() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [demoCode, setDemoCode] = useState<string | null>(null);
+  const [resendCountdown, setResendCountdown] = useState(30);
+  const [canResend, setCanResend] = useState(false);
+
+  // Countdown timer for Resend OTP
+  useEffect(() => {
+    let timer: any;
+    if (step === 'otp' && resendCountdown > 0) {
+      timer = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [step, resendCountdown]);
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     // Validate 10-digit phone format
-    const cleaned = phoneNumber.replace(/\D/g, '');
+    const cleaned = phoneNumber.replace(/\D/g, '').slice(-10);
     if (cleaned.length !== 10) {
       setError('Please enter a valid 10-digit mobile number');
       return;
@@ -31,14 +53,41 @@ export default function PhoneLogin() {
       const result = await sendOtp(cleaned);
       if (result.success) {
         setStep('otp');
+        setResendCountdown(30);
+        setCanResend(false);
+        if (result.debugCode) {
+          setDemoCode(result.debugCode);
+        } else {
+          setDemoCode(null);
+        }
+      } else {
+        setError(result.error || 'Failed to send verification code. Please check your number.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Could not connect to authentication service.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!canResend || loading) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const cleaned = phoneNumber.replace(/\D/g, '').slice(-10);
+      const result = await sendOtp(cleaned);
+      if (result.success) {
+        setResendCountdown(30);
+        setCanResend(false);
         if (result.debugCode) {
           setDemoCode(result.debugCode);
         }
       } else {
-        setError(result.error || 'Failed to send verification code');
+        setError(result.error || 'Failed to resend code.');
       }
-    } catch (err) {
-      setError('Could not connect to backend.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to resend code.');
     } finally {
       setLoading(false);
     }
@@ -48,14 +97,15 @@ export default function PhoneLogin() {
     e.preventDefault();
     setError(null);
 
-    if (otpCode.length !== 6) {
+    const cleanOtp = otpCode.replace(/\D/g, '');
+    if (cleanOtp.length !== 6) {
       setError('Please enter a 6-digit verification code');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await verifyOtp(phoneNumber, otpCode);
+      const result = await verifyOtp(phoneNumber, cleanOtp);
       if (result.success) {
         if (result.isNewUser) {
           navigate('/register');
@@ -65,8 +115,8 @@ export default function PhoneLogin() {
       } else {
         setError(result.error || t('invalid_otp'));
       }
-    } catch (err) {
-      setError('Verification failed. Try again.');
+    } catch (err: any) {
+      setError(err?.message || 'Verification failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -79,8 +129,13 @@ export default function PhoneLogin() {
     setDemoCode(null);
   };
 
+  const isConfigured = isFirebaseConfigured();
+
   return (
     <div className="flex flex-col justify-center min-h-screen bg-[#f0f6fc] text-slate-900 px-6 py-12 transition-colors duration-200">
+      {/* reCAPTCHA Anchor Container */}
+      <div id="recaptcha-container" />
+
       <div className="w-full max-w-md mx-auto bg-white rounded-3xl p-8 border border-sky-150 shadow-md shadow-sky-950/5">
         
         {/* Step 1: Input Phone Number */}
@@ -128,13 +183,15 @@ export default function PhoneLogin() {
               )}
 
               {/* Predictable verification notification box */}
-              <div className="p-4 bg-sky-50 text-slate-700 text-xs rounded-xl border border-sky-200/80">
-                <p className="font-bold text-blue-800 mb-1 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  Testing & Verification Note
-                </p>
-                Use any 10-digit number. The OTP sent will be displayed immediately on the next screen so you can verify.
-              </div>
+              {!isConfigured && (
+                <div className="p-4 bg-sky-50 text-slate-700 text-xs rounded-xl border border-sky-200/80">
+                  <p className="font-bold text-blue-800 mb-1 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-blue-600" />
+                    Sandbox Testing Mode
+                  </p>
+                  Use any 10-digit number. The sandbox OTP code will be shown on the next screen.
+                </div>
+              )}
 
               <motion.button
                 whileHover={{ scale: 1.01 }}
@@ -180,6 +237,7 @@ export default function PhoneLogin() {
                   className="block w-full text-center px-4 py-4 rounded-2xl border-2 border-sky-200 bg-sky-50/50 text-blue-950 focus:border-blue-600 focus:bg-white focus:outline-none transition-all duration-200 text-2xl font-mono tracking-[0.5em] font-extrabold"
                   disabled={loading}
                   required
+                  autoFocus
                 />
               </div>
 
@@ -190,10 +248,10 @@ export default function PhoneLogin() {
                 </div>
               )}
 
-              {/* Dynamic SMS Indicator */}
+              {/* Dynamic SMS Indicator for Sandbox Mode */}
               {demoCode && (
-                <div className="p-4 bg-sky-50 text-blue-900 text-sm rounded-xl border border-sky-200 flex flex-col gap-1 text-center font-semibold animate-pulse">
-                  <div>[SMS Gateway Sandbox] Received Code:</div>
+                <div className="p-4 bg-sky-50 text-blue-900 text-sm rounded-xl border border-sky-200 flex flex-col gap-1 text-center font-semibold">
+                  <div>[Sandbox Verification Code]</div>
                   <div className="text-2xl font-mono font-black tracking-widest text-blue-950 mt-1">
                     {demoCode}
                   </div>
@@ -215,10 +273,25 @@ export default function PhoneLogin() {
                   )}
                 </motion.button>
 
+                {/* Resend OTP Button */}
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={!canResend || loading}
+                  className="w-full text-xs font-bold text-blue-700 disabled:text-slate-400 hover:text-blue-900 text-center py-2 flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {canResend ? (
+                    'Resend OTP'
+                  ) : (
+                    `Resend OTP in ${resendCountdown}s`
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={handleBackToPhone}
-                  className="w-full text-sm font-bold text-slate-500 hover:text-blue-800 text-center py-2 cursor-pointer"
+                  className="w-full text-sm font-bold text-slate-500 hover:text-blue-800 text-center py-2 cursor-pointer transition-colors"
                   disabled={loading}
                 >
                   &larr; {t('back')}
@@ -231,3 +304,4 @@ export default function PhoneLogin() {
     </div>
   );
 }
+

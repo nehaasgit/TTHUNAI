@@ -38,7 +38,12 @@ export function decodeJWT(token: string) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    const payload = Buffer.from(parts[1], 'base64').toString('utf-8');
+    // Safe base64url to base64 conversion
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const payload = Buffer.from(base64, 'base64').toString('utf-8');
     return JSON.parse(payload);
   } catch (e) {
     return null;
@@ -55,15 +60,15 @@ export async function verifyIdToken(token: string): Promise<{ uid: string; phone
         phoneNumber: decodedToken.phone_number || '',
       };
     } catch (e: any) {
-      console.error('Firebase Admin token verification failed, falling back to manual decode:', e.message);
+      console.warn('Firebase Admin token verification failed, checking token decode fallback:', e.message);
     }
   }
 
   const decoded = decodeJWT(token);
   if (decoded) {
     return {
-      uid: decoded.sub || decoded.uid || '',
-      phoneNumber: decoded.phone_number || '',
+      uid: decoded.sub || decoded.uid || decoded.user_id || '',
+      phoneNumber: decoded.phone_number || decoded.phoneNumber || '',
     };
   }
 

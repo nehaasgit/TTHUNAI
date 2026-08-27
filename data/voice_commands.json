@@ -1,0 +1,152 @@
+[
+  {
+    "id": "vc_1",
+    "commandName": "Show my benefits",
+    "keywords": [
+      "benefit",
+      "benefits",
+      "scheme",
+      "schemes",
+      "eligibility",
+      "eligible",
+      "money",
+      "help",
+      "rights",
+      "திட்டங்கள்",
+      "योजनाएं"
+    ],
+    "targetRoute": "/benefits-discovery",
+    "isActive": true
+  },
+  {
+    "id": "vc_2",
+    "commandName": "Open my documents",
+    "keywords": [
+      "document",
+      "documents",
+      "aadhaar",
+      "ration",
+      "card",
+      "upload",
+      "vault",
+      "pdf",
+      "id",
+      "பெட்டகம்",
+      "वॉल्ट"
+    ],
+    "targetRoute": "/documents",
+    "isActive": true
+  },
+  {
+    "id": "vc_3",
+    "commandName": "Nearest hospital",
+    "keywords": [
+      "hospital",
+      "doctor",
+      "medical",
+      "clinic",
+      "health",
+      "sick",
+      "injury"
+    ],
+    "targetRoute": "/dashboard",
+    "isActive": true
+  },
+  {
+    "id": "vc_4",
+    "commandName": "Translate",
+    "keywords": [
+      "translate",
+      "language",
+      "speak",
+      "hindi",
+      "tamil",
+      "english",
+      "talk",
+      "setting",
+      "settings",
+      "அமைப்புகள்",
+      "सेटिंग्स"
+    ],
+    "targetRoute": "/settings",
+    "isActive": true
+  },
+  {
+    "id": "vc_5",
+    "commandName": "My profile",
+    "keywords": [
+      "profile",
+      "name",
+      "details",
+      "card",
+      "id card",
+      "identity",
+      "me",
+      "info",
+      "சுயவிவரம்",
+      "प्रोफाइल"
+    ],
+    "targetRoute": "/profile",
+    "isActive": true
+  },
+  {
+    "id": "vc_6",
+    "commandName": "Emergency help",
+    "keywords": [
+      "emergency",
+      "police",
+      "ambulance",
+      "fire",
+      "danger",
+      "sos",
+      "help me",
+      "accident"
+    ],
+    "targetRoute": "/dashboard",
+    "isActive": true
+  },
+  {
+    "id": "vc_7",
+    "commandName": "Salary",
+    "keywords": [
+      "salary",
+      "pay",
+      "wage",
+      "wages",
+      "money",
+      "earn",
+      "hours",
+      "employer"
+    ],
+    "targetRoute": "/dashboard",
+    "isActive": true
+  },
+  {
+    "id": "vc_8",
+    "commandName": "Complaint",
+    "keywords": [
+      "complaint",
+      "police",
+      "abuse",
+      "cheat",
+      "fight",
+      "owner",
+      "law",
+      "legal"
+    ],
+    "targetRoute": "/dashboard",
+    "isActive": true
+  },
+  {
+    "id": "vc_9",
+    "commandName": "Home",
+    "keywords": [
+      "home",
+      "dashboard",
+      "முகப்பு",
+      "होम"
+    ],
+    "targetRoute": "/dashboard",
+    "isActive": true
+  }
+]

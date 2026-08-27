@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { User, Language, DocumentRecord, GovernmentScheme } from '../../shared/types.js';
 import { translations } from '../utils/translations.js';
 import { onAuthStateChanged, signInWithPhoneNumber, RecaptchaVerifier, signOut } from 'firebase/auth';
-import { auth } from '../utils/firebase.js';
+import { auth, isFirebaseConfigured } from '../utils/firebase.js';
 import i18n from '../i18n.js';
 
 const safeBtoa = (str: string) => {
@@ -29,6 +29,82 @@ const createMockJWT = (phoneNumber: string) => {
   }
 };
 
+export const getFriendlyAuthErrorMessage = (error: any): string => {
+  const code = error?.code || '';
+  const message = error?.message || '';
+
+  if (code === 'auth/invalid-phone-number' || message.includes('invalid-phone-number')) {
+    return 'Invalid phone number format. Please enter a valid 10-digit mobile number.';
+  }
+  if (code === 'auth/unauthorized-domain' || message.includes('unauthorized-domain')) {
+    return 'Domain not authorized in Firebase. Please add this deployment domain in Firebase Console > Authentication > Settings > Authorized Domains.';
+  }
+  if (code === 'auth/quota-exceeded' || message.includes('quota-exceeded')) {
+    return 'SMS quota exceeded for today. Please try again later.';
+  }
+  if (code === 'auth/too-many-requests' || message.includes('too-many-requests')) {
+    return 'Too many attempts. Please wait a few minutes before requesting another code.';
+  }
+  if (code === 'auth/invalid-verification-code' || message.includes('invalid-verification-code')) {
+    return 'Invalid verification code. Please check the code and try again.';
+  }
+  if (code === 'auth/code-expired' || message.includes('code-expired')) {
+    return 'Verification code has expired. Please request a new OTP.';
+  }
+  if (code === 'auth/captcha-check-failed' || code === 'auth/invalid-app-credential' || message.includes('captcha') || message.includes('app-credential')) {
+    return 'reCAPTCHA verification failed or blocked. Please ensure third-party cookies are enabled or refresh the page.';
+  }
+  if (code === 'auth/missing-phone-number') {
+    return 'Please enter a valid mobile number.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network connection error. Please check your internet connection.';
+  }
+
+  return message || 'Authentication failed. Please try again.';
+};
+
+const cleanupRecaptcha = () => {
+  if ((window as any).recaptchaVerifier) {
+    try {
+      (window as any).recaptchaVerifier.clear();
+    } catch (e) {
+      console.warn('Error clearing recaptchaVerifier:', e);
+    }
+    (window as any).recaptchaVerifier = null;
+  }
+  const container = document.getElementById('recaptcha-container');
+  if (container) {
+    container.innerHTML = '';
+  }
+};
+
+const getOrCreateRecaptchaVerifier = (): RecaptchaVerifier => {
+  cleanupRecaptcha();
+
+  let container = document.getElementById('recaptcha-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'recaptcha-container';
+    document.body.appendChild(container);
+  }
+  container.innerHTML = '';
+
+  const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+    size: 'invisible',
+    callback: () => {
+      console.log('Firebase reCAPTCHA verified successfully');
+    },
+    'expired-callback': () => {
+      console.warn('Firebase reCAPTCHA challenge expired');
+      cleanupRecaptcha();
+    }
+  });
+
+  (window as any).recaptchaVerifier = verifier;
+  return verifier;
+};
+
 interface AppContextProps {
   language: Language;
   setLanguage: (lang: Language) => void;
@@ -44,7 +120,7 @@ interface AppContextProps {
   token: string | null;
   isAuthenticated: boolean;
   loading: boolean;
-  sendOtp: (phoneNumber: string) => Promise<{ success: boolean; debugCode?: string; error?: string }>;
+  sendOtp: (phoneNumber: string) => Promise<{ success: boolean; debugCode?: string; error?: string; isSimulated?: boolean }>;
   verifyOtp: (phoneNumber: string, code: string) => Promise<{ success: boolean; isNewUser?: boolean; error?: string }>;
   setupProfile: (profileData: {
     name: string;
@@ -132,12 +208,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (savedTheme) setTheme(savedTheme);
 
     const savedToken = localStorage.getItem('sahaaya_token');
-    const isSimToken = savedToken && (savedToken.includes('mock_signature') || savedToken.startsWith('mock_'));
-
-    if (isSimToken) {
+    if (savedToken) {
       setToken(savedToken);
-      setIsSimulated(true);
+      const isSimToken = savedToken.includes('mock_signature') || savedToken.startsWith('mock_');
+      setIsSimulated(Boolean(isSimToken));
       fetchProfile(savedToken).catch(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -150,23 +227,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await fetchProfile(idToken);
         } catch (e) {
           console.error('Error handling Firebase auth state change:', e);
-          setLoading(false);
-        }
-      } else {
-        const currentToken = localStorage.getItem('sahaaya_token');
-        const isCurrentSim = currentToken && (currentToken.includes('mock_signature') || currentToken.startsWith('mock_'));
-        
-        if (isCurrentSim) {
-          setToken(currentToken);
-          setIsSimulated(true);
-          await fetchProfile(currentToken).catch(() => {});
-          setLoading(false);
-        } else {
-          setUser(null);
-          setToken(null);
-          setDocuments([]);
-          setSchemes([]);
-          localStorage.removeItem('sahaaya_token');
           setLoading(false);
         }
       }
@@ -253,66 +313,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const sendOtp = async (phoneNumber: string) => {
+  const sendOtp = async (phoneNumber: string): Promise<{ success: boolean; debugCode?: string; error?: string; isSimulated?: boolean }> => {
+    const isConfigured = isFirebaseConfigured();
+
+    if (!isConfigured) {
+      console.info('[Sandbox Mode] Real Firebase credentials not provided in environment. Using Sandbox Authentication (Code: 123456).');
+      setIsSimulated(true);
+      return { success: true, debugCode: '123456', isSimulated: true };
+    }
+
     try {
-      const isDummyKey = !((import.meta as any).env?.VITE_FIREBASE_API_KEY || "") || 
-                         ((import.meta as any).env?.VITE_FIREBASE_API_KEY || "").includes("dummy");
-      
-      if (isDummyKey) {
-        console.warn('[Simulation Mode] Firebase config not fully set. Falling back to Developer Simulation.');
-        setIsSimulated(true);
-        return { success: true, debugCode: '123456' };
-      }
+      setIsSimulated(false);
+      const verifier = getOrCreateRecaptchaVerifier();
+      const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
+      const formattedPhoneNumber = '+91' + cleanDigits;
 
-      let verifier = (window as any).recaptchaVerifier;
-      if (!verifier) {
-        const container = document.getElementById('recaptcha-container');
-        if (!container) {
-          const div = document.createElement('div');
-          div.id = 'recaptcha-container';
-          document.body.appendChild(div);
-        }
-        
-        verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-          size: 'invisible',
-          callback: () => {
-            console.log('Firebase reCAPTCHA verified successfully');
-          },
-          'expired-callback': () => {
-            console.warn('Firebase reCAPTCHA challenge expired');
-          }
-        });
-        (window as any).recaptchaVerifier = verifier;
-      }
-
-      const formattedPhoneNumber = '+91' + phoneNumber;
       const confirmation = await signInWithPhoneNumber(auth, formattedPhoneNumber, verifier);
       setConfirmationResult(confirmation);
-      setIsSimulated(false);
       
-      return { success: true };
+      return { success: true, isSimulated: false };
     } catch (e: any) {
-      const errorMsg = e?.message || e?.code || '';
-      console.warn('[Firebase Attempt Failed] Falling back to Developer Simulation. Details:', errorMsg);
-      setIsSimulated(true);
-      if ((window as any).recaptchaVerifier) {
-        try {
-          ((window as any).recaptchaVerifier).clear();
-          (window as any).recaptchaVerifier = null;
-        } catch (_) {}
-      }
-      return { success: true, debugCode: '123456' };
+      cleanupRecaptcha();
+      console.error('[Firebase Phone Auth Error]:', e);
+      const friendlyError = getFriendlyAuthErrorMessage(e);
+      return { success: false, error: friendlyError };
     }
   };
 
-  const verifyOtp = async (phoneNumber: string, code: string) => {
+  const verifyOtp = async (phoneNumber: string, code: string): Promise<{ success: boolean; isNewUser?: boolean; error?: string }> => {
     try {
-      if (isSimulated || !confirmationResult) {
+      if (isSimulated) {
         if (code !== '123456' && code !== '111111') {
-          return { success: false, error: 'Invalid verification code. Please use 123456 for testing.' };
+          return { success: false, error: 'Invalid verification code. In sandbox mode, please use 123456.' };
         }
 
-        const formattedPhoneNumber = '+91' + phoneNumber;
+        const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
+        const formattedPhoneNumber = '+91' + cleanDigits;
         const idToken = createMockJWT(formattedPhoneNumber);
 
         const res = await fetch('/api/auth/verify-otp', {
@@ -333,41 +369,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           return { success: true, isNewUser: data.isNewUser };
         } else {
-          const err = await res.json();
-          return { success: false, error: err.error || 'Failed to sync session with backend' };
+          const err = await res.json().catch(() => ({}));
+          return { success: false, error: err.error || 'Failed to authenticate session with backend.' };
         }
+      }
+
+      if (!confirmationResult) {
+        return { 
+          success: false, 
+          error: 'Verification session expired or missing. Please request a new OTP.' 
+        };
       }
 
       const credential = await confirmationResult.confirm(code);
       const fbUser = credential.user;
       const idToken = await fbUser.getIdToken();
-      
+
       const res = await fetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken })
       });
-      
+
       if (res.ok) {
         const data = await res.json();
         setToken(data.token);
         setUser(data.user);
         localStorage.setItem('sahaaya_token', data.token);
-        
+
         if (data.user.profileSetupCompleted) {
           await Promise.all([fetchDocumentsInternal(data.token), fetchSchemesInternal(data.token)]);
         }
-        
+
         return { success: true, isNewUser: data.isNewUser };
       } else {
-        const err = await res.json();
-        return { success: false, error: err.error || 'Failed to sync session with backend' };
+        const err = await res.json().catch(() => ({}));
+        return { success: false, error: err.error || 'Backend failed to create or verify user profile.' };
       }
     } catch (e: any) {
-      console.warn('Failed to verify OTP via Firebase:', e?.message || e);
+      console.error('Failed to verify OTP via Firebase:', e);
+      const friendlyError = getFriendlyAuthErrorMessage(e);
       return { 
         success: false, 
-        error: e.message || 'Invalid or expired verification code' 
+        error: friendlyError 
       };
     }
   };
@@ -432,6 +476,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = async () => {
+    cleanupRecaptcha();
     try {
       await signOut(auth);
     } catch (e) {
@@ -443,6 +488,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSchemes([]);
     localStorage.removeItem('sahaaya_token');
   };
+
 
   // Documents internal
   const fetchDocumentsInternal = async (authToken: string) => {
