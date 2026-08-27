@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { useApp } from '../contexts/AppContext.js';
 import { Smartphone, ShieldCheck, AlertCircle, RefreshCw, KeyRound, RotateCcw } from 'lucide-react';
-import { isFirebaseConfigured } from '../utils/firebase.js';
 
 export default function PhoneLogin() {
   const { sendOtp, verifyOtp, t } = useApp();
@@ -14,7 +13,6 @@ export default function PhoneLogin() {
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [demoCode, setDemoCode] = useState<string | null>(null);
   const [resendCountdown, setResendCountdown] = useState(30);
   const [canResend, setCanResend] = useState(false);
 
@@ -53,13 +51,9 @@ export default function PhoneLogin() {
       const result = await sendOtp(cleaned);
       if (result.success) {
         setStep('otp');
+        setOtpCode('');
         setResendCountdown(30);
         setCanResend(false);
-        if (result.debugCode) {
-          setDemoCode(result.debugCode);
-        } else {
-          setDemoCode(null);
-        }
       } else {
         setError(result.error || 'Failed to send verification code. Please check your number.');
       }
@@ -80,9 +74,7 @@ export default function PhoneLogin() {
       if (result.success) {
         setResendCountdown(30);
         setCanResend(false);
-        if (result.debugCode) {
-          setDemoCode(result.debugCode);
-        }
+        setOtpCode('');
       } else {
         setError(result.error || 'Failed to resend code.');
       }
@@ -99,7 +91,12 @@ export default function PhoneLogin() {
 
     const cleanOtp = otpCode.replace(/\D/g, '');
     if (cleanOtp.length !== 6) {
-      setError('Please enter a 6-digit verification code');
+      setError('Please enter the 6-digit OTP.');
+      return;
+    }
+
+    if (cleanOtp !== '123456') {
+      setError('Invalid OTP. Please try again.');
       return;
     }
 
@@ -113,7 +110,7 @@ export default function PhoneLogin() {
           navigate('/dashboard');
         }
       } else {
-        setError(result.error || t('invalid_otp'));
+        setError(result.error || 'Invalid OTP. Please try again.');
       }
     } catch (err: any) {
       setError(err?.message || 'Verification failed. Please try again.');
@@ -126,16 +123,10 @@ export default function PhoneLogin() {
     setStep('phone');
     setOtpCode('');
     setError(null);
-    setDemoCode(null);
   };
-
-  const isConfigured = isFirebaseConfigured();
 
   return (
     <div className="flex flex-col justify-center min-h-screen bg-[#f0f6fc] text-slate-900 px-6 py-12 transition-colors duration-200">
-      {/* reCAPTCHA Anchor Container */}
-      <div id="recaptcha-container" />
-
       <div className="w-full max-w-md mx-auto bg-white rounded-3xl p-8 border border-sky-150 shadow-md shadow-sky-950/5">
         
         {/* Step 1: Input Phone Number */}
@@ -182,17 +173,6 @@ export default function PhoneLogin() {
                 </div>
               )}
 
-              {/* Predictable verification notification box */}
-              {!isConfigured && (
-                <div className="p-4 bg-sky-50 text-slate-700 text-xs rounded-xl border border-sky-200/80">
-                  <p className="font-bold text-blue-800 mb-1 flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-blue-600" />
-                    Sandbox Testing Mode
-                  </p>
-                  Use any 10-digit number. The sandbox OTP code will be shown on the next screen.
-                </div>
-              )}
-
               <motion.button
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
@@ -219,7 +199,7 @@ export default function PhoneLogin() {
                 {t('enter_otp')}
               </h2>
               <p className="text-sm text-slate-600 mt-2 font-medium">
-                {t('otp_sent_to')} <span className="font-bold text-blue-950">+91 {phoneNumber}</span>
+                Enter the 6-digit OTP sent to your phone <span className="font-bold text-blue-950">+91 {phoneNumber}</span>
               </p>
             </div>
 
@@ -241,20 +221,19 @@ export default function PhoneLogin() {
                 />
               </div>
 
+              {/* Demo OTP Notice */}
+              <div className="p-4 bg-sky-50 text-slate-700 text-xs rounded-xl border border-sky-200/80">
+                <p className="font-bold text-blue-800 mb-0.5 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  Demo Verification Code
+                </p>
+                For demo purposes, the valid OTP is: <span className="font-mono font-bold text-blue-950 text-sm">123456</span>
+              </div>
+
               {error && (
                 <div className="p-4 bg-red-50 text-red-700 border border-red-200 text-sm rounded-xl flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                   <span className="font-semibold">{error}</span>
-                </div>
-              )}
-
-              {/* Dynamic SMS Indicator for Sandbox Mode */}
-              {demoCode && (
-                <div className="p-4 bg-sky-50 text-blue-900 text-sm rounded-xl border border-sky-200 flex flex-col gap-1 text-center font-semibold">
-                  <div>[Sandbox Verification Code]</div>
-                  <div className="text-2xl font-mono font-black tracking-widest text-blue-950 mt-1">
-                    {demoCode}
-                  </div>
                 </div>
               )}
 

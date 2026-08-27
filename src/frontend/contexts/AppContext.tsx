@@ -1,8 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { User, Language, DocumentRecord, GovernmentScheme } from '../../shared/types.js';
 import { translations } from '../utils/translations.js';
-import { onAuthStateChanged, signInWithPhoneNumber, RecaptchaVerifier, signOut } from 'firebase/auth';
-import { auth, isFirebaseConfigured } from '../utils/firebase.js';
 import i18n from '../i18n.js';
 
 const safeBtoa = (str: string) => {
@@ -17,92 +15,16 @@ const createMockJWT = (phoneNumber: string) => {
   try {
     const header = safeBtoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
     const payload = safeBtoa(JSON.stringify({
-      sub: "mock_user_" + phoneNumber.replace(/\D/g, ''),
-      uid: "mock_user_" + phoneNumber.replace(/\D/g, ''),
+      sub: "user_" + phoneNumber.replace(/\D/g, ''),
+      uid: "user_" + phoneNumber.replace(/\D/g, ''),
       phone_number: phoneNumber,
-      exp: Math.floor(Date.now() / 1000) + 3600
+      exp: Math.floor(Date.now() / 1000) + 86400 * 30 // 30-day session
     }));
-    const signature = "mock_signature";
+    const signature = "demo_signature";
     return `${header}.${payload}.${signature}`;
   } catch (e) {
-    return `mock_token_for_${phoneNumber}`;
+    return `demo_token_for_${phoneNumber}`;
   }
-};
-
-export const getFriendlyAuthErrorMessage = (error: any): string => {
-  const code = error?.code || '';
-  const message = error?.message || '';
-
-  if (code === 'auth/invalid-phone-number' || message.includes('invalid-phone-number')) {
-    return 'Invalid phone number format. Please enter a valid 10-digit mobile number.';
-  }
-  if (code === 'auth/unauthorized-domain' || message.includes('unauthorized-domain')) {
-    return 'Domain not authorized in Firebase. Please add this deployment domain in Firebase Console > Authentication > Settings > Authorized Domains.';
-  }
-  if (code === 'auth/quota-exceeded' || message.includes('quota-exceeded')) {
-    return 'SMS quota exceeded for today. Please try again later.';
-  }
-  if (code === 'auth/too-many-requests' || message.includes('too-many-requests')) {
-    return 'Too many attempts. Please wait a few minutes before requesting another code.';
-  }
-  if (code === 'auth/invalid-verification-code' || message.includes('invalid-verification-code')) {
-    return 'Invalid verification code. Please check the code and try again.';
-  }
-  if (code === 'auth/code-expired' || message.includes('code-expired')) {
-    return 'Verification code has expired. Please request a new OTP.';
-  }
-  if (code === 'auth/captcha-check-failed' || code === 'auth/invalid-app-credential' || message.includes('captcha') || message.includes('app-credential')) {
-    return 'reCAPTCHA verification failed or blocked. Please ensure third-party cookies are enabled or refresh the page.';
-  }
-  if (code === 'auth/missing-phone-number') {
-    return 'Please enter a valid mobile number.';
-  }
-  if (code === 'auth/network-request-failed') {
-    return 'Network connection error. Please check your internet connection.';
-  }
-
-  return message || 'Authentication failed. Please try again.';
-};
-
-const cleanupRecaptcha = () => {
-  if ((window as any).recaptchaVerifier) {
-    try {
-      (window as any).recaptchaVerifier.clear();
-    } catch (e) {
-      console.warn('Error clearing recaptchaVerifier:', e);
-    }
-    (window as any).recaptchaVerifier = null;
-  }
-  const container = document.getElementById('recaptcha-container');
-  if (container) {
-    container.innerHTML = '';
-  }
-};
-
-const getOrCreateRecaptchaVerifier = (): RecaptchaVerifier => {
-  cleanupRecaptcha();
-
-  let container = document.getElementById('recaptcha-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'recaptcha-container';
-    document.body.appendChild(container);
-  }
-  container.innerHTML = '';
-
-  const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-    size: 'invisible',
-    callback: () => {
-      console.log('Firebase reCAPTCHA verified successfully');
-    },
-    'expired-callback': () => {
-      console.warn('Firebase reCAPTCHA challenge expired');
-      cleanupRecaptcha();
-    }
-  });
-
-  (window as any).recaptchaVerifier = verifier;
-  return verifier;
 };
 
 interface AppContextProps {
@@ -120,7 +42,7 @@ interface AppContextProps {
   token: string | null;
   isAuthenticated: boolean;
   loading: boolean;
-  sendOtp: (phoneNumber: string) => Promise<{ success: boolean; debugCode?: string; error?: string; isSimulated?: boolean }>;
+  sendOtp: (phoneNumber: string) => Promise<{ success: boolean; debugCode?: string; error?: string }>;
   verifyOtp: (phoneNumber: string, code: string) => Promise<{ success: boolean; isNewUser?: boolean; error?: string }>;
   setupProfile: (profileData: {
     name: string;
@@ -156,8 +78,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [loading, setLoading] = useState<boolean>(true);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [schemes, setSchemes] = useState<GovernmentScheme[]>([]);
-  const [confirmationResult, setConfirmationResult] = useState<any>(null);
-  const [isSimulated, setIsSimulated] = useState<boolean>(false);
 
   // Apply dark mode CSS class to html element
   useEffect(() => {
@@ -210,29 +130,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const savedToken = localStorage.getItem('sahaaya_token');
     if (savedToken) {
       setToken(savedToken);
-      const isSimToken = savedToken.includes('mock_signature') || savedToken.startsWith('mock_');
-      setIsSimulated(Boolean(isSimToken));
       fetchProfile(savedToken).catch(() => setLoading(false));
     } else {
       setLoading(false);
     }
-
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const idToken = await firebaseUser.getIdToken();
-          setToken(idToken);
-          localStorage.setItem('sahaaya_token', idToken);
-          setIsSimulated(false);
-          await fetchProfile(idToken);
-        } catch (e) {
-          console.error('Error handling Firebase auth state change:', e);
-          setLoading(false);
-        }
-      }
-    });
-
-    return () => unsubscribe();
   }, []);
 
   const setLanguage = (lang: Language) => {
@@ -313,77 +214,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const sendOtp = async (phoneNumber: string): Promise<{ success: boolean; debugCode?: string; error?: string; isSimulated?: boolean }> => {
-    const isConfigured = isFirebaseConfigured();
-
-    if (!isConfigured) {
-      console.info('[Sandbox Mode] Real Firebase credentials not provided in environment. Using Sandbox Authentication (Code: 123456).');
-      setIsSimulated(true);
-      return { success: true, debugCode: '123456', isSimulated: true };
+  // Static Demo OTP send
+  const sendOtp = async (phoneNumber: string): Promise<{ success: boolean; debugCode?: string; error?: string }> => {
+    const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
+    if (cleanDigits.length !== 10) {
+      return { success: false, error: 'Please enter a valid 10-digit mobile number' };
     }
 
-    try {
-      setIsSimulated(false);
-      const verifier = getOrCreateRecaptchaVerifier();
-      const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
-      const formattedPhoneNumber = '+91' + cleanDigits;
-
-      const confirmation = await signInWithPhoneNumber(auth, formattedPhoneNumber, verifier);
-      setConfirmationResult(confirmation);
-      
-      return { success: true, isSimulated: false };
-    } catch (e: any) {
-      cleanupRecaptcha();
-      console.error('[Firebase Phone Auth Error]:', e);
-      const friendlyError = getFriendlyAuthErrorMessage(e);
-      return { success: false, error: friendlyError };
-    }
+    // Static Demo OTP: 123456
+    return { success: true, debugCode: '123456' };
   };
 
+  // Static Demo OTP verification
   const verifyOtp = async (phoneNumber: string, code: string): Promise<{ success: boolean; isNewUser?: boolean; error?: string }> => {
+    const cleanOtp = code.replace(/\D/g, '');
+
+    if (cleanOtp.length !== 6) {
+      return { success: false, error: 'Please enter the 6-digit OTP.' };
+    }
+
+    if (cleanOtp !== '123456') {
+      return { success: false, error: 'Invalid OTP. Please try again.' };
+    }
+
     try {
-      if (isSimulated) {
-        if (code !== '123456' && code !== '111111') {
-          return { success: false, error: 'Invalid verification code. In sandbox mode, please use 123456.' };
-        }
-
-        const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
-        const formattedPhoneNumber = '+91' + cleanDigits;
-        const idToken = createMockJWT(formattedPhoneNumber);
-
-        const res = await fetch('/api/auth/verify-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setToken(data.token);
-          setUser(data.user);
-          localStorage.setItem('sahaaya_token', data.token);
-
-          if (data.user.profileSetupCompleted) {
-            await Promise.all([fetchDocumentsInternal(data.token), fetchSchemesInternal(data.token)]);
-          }
-
-          return { success: true, isNewUser: data.isNewUser };
-        } else {
-          const err = await res.json().catch(() => ({}));
-          return { success: false, error: err.error || 'Failed to authenticate session with backend.' };
-        }
-      }
-
-      if (!confirmationResult) {
-        return { 
-          success: false, 
-          error: 'Verification session expired or missing. Please request a new OTP.' 
-        };
-      }
-
-      const credential = await confirmationResult.confirm(code);
-      const fbUser = credential.user;
-      const idToken = await fbUser.getIdToken();
+      const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
+      const formattedPhoneNumber = '+91' + cleanDigits;
+      const idToken = createMockJWT(formattedPhoneNumber);
 
       const res = await fetch('/api/auth/verify-otp', {
         method: 'POST',
@@ -404,14 +261,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: true, isNewUser: data.isNewUser };
       } else {
         const err = await res.json().catch(() => ({}));
-        return { success: false, error: err.error || 'Backend failed to create or verify user profile.' };
+        return { success: false, error: err.error || 'Failed to authenticate session with backend.' };
       }
     } catch (e: any) {
-      console.error('Failed to verify OTP via Firebase:', e);
-      const friendlyError = getFriendlyAuthErrorMessage(e);
+      console.error('Failed to verify OTP:', e);
       return { 
         success: false, 
-        error: friendlyError 
+        error: e?.message || 'Authentication failed. Please try again.' 
       };
     }
   };
@@ -475,13 +331,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const logout = async () => {
-    cleanupRecaptcha();
-    try {
-      await signOut(auth);
-    } catch (e) {
-      console.error('Error signing out from Firebase:', e);
-    }
+  const logout = () => {
     setUser(null);
     setToken(null);
     setDocuments([]);

@@ -55,42 +55,73 @@ const TN_SCHEMES = [
 ];
 
 export const sendOTP = (req: Request, res: Response) => {
-  // In Firebase Phone Authentication, sending SMS OTP is initiated from the client side directly
+  const { phoneNumber } = req.body;
+  const cleanPhone = (phoneNumber || '').replace(/\D/g, '').slice(-10);
+  
+  if (cleanPhone.length !== 10) {
+    res.status(400).json({ error: 'Please provide a valid 10-digit mobile number' });
+    return;
+  }
+
+  // Demo static OTP response
   res.status(200).json({ 
-    message: 'Firebase Phone Auth is active. SMS sending is managed client-side.'
+    message: 'Demo OTP initialized',
+    otp: '123456'
   });
 };
 
 export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
-  const { idToken } = req.body;
+  const { idToken, phoneNumber, otp } = req.body;
 
-  if (!idToken) {
-    res.status(400).json({ error: 'Firebase idToken is required' });
+  let uid = '';
+  let phone = '';
+  let token = idToken || '';
+
+  if (otp) {
+    if (otp !== '123456') {
+      res.status(400).json({ error: 'Invalid OTP. Please enter 123456.' });
+      return;
+    }
+    const cleanDigits = (phoneNumber || '').replace(/\D/g, '').slice(-10);
+    phone = '+91' + cleanDigits;
+    uid = 'user_' + cleanDigits;
+    if (!token) {
+      token = Buffer.from(JSON.stringify({ sub: uid, phone_number: phone, exp: Math.floor(Date.now() / 1000) + 86400 * 30 })).toString('base64');
+    }
+  } else if (idToken) {
+    try {
+      const decoded = await verifyIdToken(idToken);
+      if (!decoded) {
+        res.status(400).json({ error: 'Invalid or expired verification token' });
+        return;
+      }
+      uid = decoded.uid;
+      phone = decoded.phoneNumber;
+    } catch (err) {
+      res.status(400).json({ error: 'Failed to verify token' });
+      return;
+    }
+  } else {
+    res.status(400).json({ error: 'Verification token or OTP is required' });
     return;
   }
 
   try {
-    const decoded = await verifyIdToken(idToken);
-    if (!decoded) {
-      res.status(400).json({ error: 'Invalid or expired Firebase verification token' });
-      return;
-    }
-
-    const { uid, phoneNumber } = decoded;
+    const phoneNumberFormatted = phone;
 
     // Search for existing user by id/firebaseUID or phoneNumber
     const users = Database.getUsers();
     let user = users.find(u => u.id === uid || u.firebaseUID === uid);
 
-    if (!user && phoneNumber) {
-      const cleanPhone = phoneNumber.replace(/\D/g, '').slice(-10);
+    if (!user && phoneNumberFormatted) {
+      const cleanPhone = phoneNumberFormatted.replace(/\D/g, '').slice(-10);
       user = users.find(u => {
         const uPhone = u.phoneNumber.replace(/\D/g, '').slice(-10);
         return uPhone === cleanPhone;
       });
 
       if (user) {
-        // Associate pre-existing user profile with this Firebase login
+        // Associate pre-existing user profile with this login
         Database.updateUser(user.id, {
           firebaseUID: uid,
           authenticationProvider: 'phone'
@@ -105,7 +136,7 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
       isNewUser = true;
       user = {
         id: uid,
-        phoneNumber: phoneNumber || '',
+        phoneNumber: phoneNumberFormatted || '',
         firebaseUID: uid,
         authenticationProvider: 'phone',
         profileSetupCompleted: false,
@@ -117,7 +148,7 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
 
     res.status(200).json({
       message: 'Authentication successful',
-      token: idToken,
+      token,
       user,
       isNewUser
     });
