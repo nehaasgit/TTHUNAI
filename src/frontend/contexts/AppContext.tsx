@@ -240,12 +240,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const cleanDigits = phoneNumber.replace(/\D/g, '').slice(-10);
       const formattedPhoneNumber = '+91' + cleanDigits;
-      const idToken = createMockJWT(formattedPhoneNumber);
 
       const res = await fetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken })
+        body: JSON.stringify({ 
+          phoneNumber: formattedPhoneNumber,
+          otp: cleanOtp 
+        })
       });
 
       if (res.ok) {
@@ -254,7 +256,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setUser(data.user);
         localStorage.setItem('sahaaya_token', data.token);
 
-        if (data.user.profileSetupCompleted) {
+        if (data.user && data.user.profileSetupCompleted) {
           await Promise.all([fetchDocumentsInternal(data.token), fetchSchemesInternal(data.token)]);
         }
 

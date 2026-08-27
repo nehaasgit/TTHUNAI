@@ -85,9 +85,9 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
     const cleanDigits = (phoneNumber || '').replace(/\D/g, '').slice(-10);
     phone = '+91' + cleanDigits;
     uid = 'user_' + cleanDigits;
-    if (!token) {
-      token = Buffer.from(JSON.stringify({ sub: uid, phone_number: phone, exp: Math.floor(Date.now() / 1000) + 86400 * 30 })).toString('base64');
-    }
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ sub: uid, uid: uid, phone_number: phone, exp: Math.floor(Date.now() / 1000) + 86400 * 30 })).toString('base64url');
+    token = `${header}.${payload}.demo_signature`;
   } else if (idToken) {
     try {
       const decoded = await verifyIdToken(idToken);
@@ -97,6 +97,7 @@ export const verifyOTP = async (req: Request, res: Response): Promise<void> => {
       }
       uid = decoded.uid;
       phone = decoded.phoneNumber;
+      token = idToken;
     } catch (err) {
       res.status(400).json({ error: 'Failed to verify token' });
       return;

@@ -5,5 +5,23 @@
     "firebaseUID": "test_user_1",
     "authenticationProvider": "phone",
     "profileSetupCompleted": false
+  },
+  {
+    "id": "mock_user_919943578164",
+    "phoneNumber": "+919943578164",
+    "firebaseUID": "user_9943578164",
+    "authenticationProvider": "phone",
+    "profileSetupCompleted": true,
+    "name": "KANNAN",
+    "age": 28,
+    "stateOfOrigin": "Bihar",
+    "nativeLanguage": "en",
+    "preferredLanguage": "en",
+    "voiceLanguage": "en",
+    "currentDistrictInTN": "Chennai",
+    "industry": "Construction",
+    "dateOfRegistration": "2026-08-27",
+    "avatarUrl": "https://api.dicebear.com/7.x/bottts/svg?seed=KANNAN",
+    "lastLanguageChanged": "2026-08-27T16:30:14.780Z"
   }
 ]
