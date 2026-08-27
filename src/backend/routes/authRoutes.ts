@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { sendOTP, verifyOTP, getProfile, setupProfile, updateProfile, getSchemes } from '../controllers/authController.js';
+import { login, sendOTP, verifyOTP, getProfile, setupProfile, updateProfile, getSchemes } from '../controllers/authController.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
 // Public auth endpoints
+router.post('/login', login);
 router.post('/send-otp', sendOTP);
 router.post('/verify-otp', verifyOTP);
 

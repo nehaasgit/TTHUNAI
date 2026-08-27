@@ -54,6 +54,67 @@ const TN_SCHEMES = [
   }
 ];
 
+export const login = async (req: Request, res: Response): Promise<void> => {
+  const { phoneNumber } = req.body;
+  const cleanPhone = (phoneNumber || '').replace(/\D/g, '').slice(-10);
+
+  if (cleanPhone.length !== 10) {
+    res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
+    return;
+  }
+
+  const phone = '+91' + cleanPhone;
+  const uid = 'user_' + cleanPhone;
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ sub: uid, uid: uid, phone_number: phone, exp: Math.floor(Date.now() / 1000) + 86400 * 30 })).toString('base64url');
+  const token = `${header}.${payload}.demo_signature`;
+
+  try {
+    const users = Database.getUsers();
+    let user = users.find(u => u.id === uid || u.firebaseUID === uid);
+
+    if (!user) {
+      user = users.find(u => {
+        const uPhone = u.phoneNumber.replace(/\D/g, '').slice(-10);
+        return uPhone === cleanPhone;
+      });
+
+      if (user) {
+        Database.updateUser(user.id, {
+          firebaseUID: uid,
+          authenticationProvider: 'phone'
+        });
+        user = Database.findUserById(user.id) || user;
+      }
+    }
+
+    let isNewUser = false;
+    if (!user) {
+      isNewUser = true;
+      user = {
+        id: uid,
+        phoneNumber: phone,
+        firebaseUID: uid,
+        authenticationProvider: 'phone',
+        profileSetupCompleted: false,
+      };
+      Database.createUser(user);
+    } else {
+      isNewUser = !user.profileSetupCompleted;
+    }
+
+    res.status(200).json({
+      message: 'Authentication successful',
+      token,
+      user,
+      isNewUser
+    });
+  } catch (error) {
+    console.error('Error in login:', error);
+    res.status(500).json({ error: 'Internal server error during authentication' });
+  }
+};
+
 export const sendOTP = (req: Request, res: Response) => {
   const { phoneNumber } = req.body;
   const cleanPhone = (phoneNumber || '').replace(/\D/g, '').slice(-10);
